@@ -45,7 +45,7 @@ export default function GridCanvas() {
   }
 
   function canPlace(col: number, row: number): boolean {
-    if (col + 2 > cols || row + 2 > rows) return false;
+    if (col < 1 || row < 1 || col > cols - 1 || row > rows - 1) return false;
     return tasks.every(
       (t) => Math.abs(t.col - col) >= 2 || Math.abs(t.row - row) >= 2
     );
@@ -86,8 +86,8 @@ export default function GridCanvas() {
           {tasks.map((task) => (
             <g key={task.id}>
               <rect
-                x={task.col * CELL_SIZE}
-                y={task.row * CELL_SIZE}
+                x={(task.col - 1) * CELL_SIZE}
+                y={(task.row - 1) * CELL_SIZE}
                 width={TASK_SIZE}
                 height={TASK_SIZE}
                 fill="#f4f4f4"
@@ -95,8 +95,8 @@ export default function GridCanvas() {
                 strokeWidth={1}
               />
               <text
-                x={task.col * CELL_SIZE + CELL_SIZE}
-                y={task.row * CELL_SIZE + CELL_SIZE}
+                x={task.col * CELL_SIZE}
+                y={task.row * CELL_SIZE}
                 textAnchor="middle"
                 dominantBaseline="central"
                 fontFamily="'Noto Sans Mono', 'IBM Plex Mono', monospace"
