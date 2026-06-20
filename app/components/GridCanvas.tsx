@@ -391,6 +391,7 @@ export default function GridCanvas() {
                   strokeWidth={strokeWidth}
                   style={{ cursor: isDragging ? "grabbing" : "grab" }}
                   onMouseDown={(e) => handleTaskMouseDown(e, task.id)}
+                  onClick={(e) => e.stopPropagation()}
                 />
                 <text
                   x={eff.col * CELL_SIZE}
