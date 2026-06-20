@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import TaskEditPanel from "./TaskEditPanel";
+import { computeCpm, CpmTaskResult } from "../lib/cpm";
 
 const CELL_SIZE = 32;
 const TASK_SIZE = 2 * CELL_SIZE;
@@ -79,6 +80,8 @@ export default function GridCanvas() {
   const [targetConnector, setTargetConnector] = useState<ConnectorRef | null>(null);
   const [draggingTask, setDraggingTask] = useState<DraggingTask | null>(null);
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
+  const [cpmResults, setCpmResults] = useState<Map<number, CpmTaskResult> | null>(null);
+  const [cpmError, setCpmError] = useState<string | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -115,6 +118,22 @@ export default function GridCanvas() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedItem]);
+
+  useEffect(() => {
+    setCpmResults(null);
+    setCpmError(null);
+  }, [tasks, arrows]);
+
+  function handleCalculate() {
+    const output = computeCpm(tasks, arrows);
+    if (output.ok) {
+      setCpmResults(output.results);
+      setCpmError(null);
+    } else {
+      setCpmResults(null);
+      setCpmError(output.error);
+    }
+  }
 
   const cols = Math.floor(containerSize.width / CELL_SIZE);
   const rows = Math.floor(containerSize.height / CELL_SIZE);
@@ -381,14 +400,22 @@ export default function GridCanvas() {
               isDragging &&
               canPlaceExcluding(draggingTask!.ghostCol, draggingTask!.ghostRow, task.id);
 
+            const cpmResult = cpmResults?.get(task.id);
+            const isCritical = cpmResult?.isCritical ?? false;
+
             let strokeColor = "#c6c6c6";
             let strokeWidth = 1;
+            let fillColor = "#f4f4f4";
             if (isDragging) {
               strokeColor = dropValid ? "#0f62fe" : "#da1e28";
               strokeWidth = 2;
             } else if (isSelected) {
               strokeColor = "#0f62fe";
               strokeWidth = 2;
+            } else if (isCritical) {
+              strokeColor = "#24a148";
+              strokeWidth = 2;
+              fillColor = "#defbe6";
             }
 
             return (
@@ -398,7 +425,7 @@ export default function GridCanvas() {
                   y={(eff.row - 1) * CELL_SIZE}
                   width={TASK_SIZE}
                   height={TASK_SIZE}
-                  fill="#f4f4f4"
+                  fill={fillColor}
                   stroke={strokeColor}
                   strokeWidth={strokeWidth}
                   style={{ cursor: isDragging ? "grabbing" : "grab" }}
@@ -506,9 +533,52 @@ export default function GridCanvas() {
           )}
         </svg>
       )}
+      {/* 計算ボタン */}
+      <button
+        onClick={handleCalculate}
+        style={{
+          position: "fixed",
+          top: 16,
+          right: editingTask ? 336 : 16,
+          zIndex: 90,
+          height: 48,
+          padding: "0 24px",
+          backgroundColor: "#0f62fe",
+          color: "#ffffff",
+          border: "none",
+          borderRadius: 0,
+          fontSize: 14,
+          fontFamily: "inherit",
+          cursor: "pointer",
+        }}
+      >
+        計算
+      </button>
+
+      {/* エラー通知 */}
+      {cpmError && (
+        <div
+          style={{
+            position: "fixed",
+            top: 72,
+            right: editingTask ? 336 : 16,
+            zIndex: 90,
+            backgroundColor: "#fff1f1",
+            borderLeft: "3px solid #da1e28",
+            padding: "8px 12px",
+            fontSize: 13,
+            color: "#161616",
+            maxWidth: 280,
+          }}
+        >
+          {cpmError}
+        </div>
+      )}
+
       {editingTask && (
         <TaskEditPanel
           task={editingTask}
+          cpmResult={cpmResults?.get(editingTask.id) ?? null}
           onSave={(name, duration) => {
             setTasks((prev) =>
               prev.map((t) =>

@@ -8,14 +8,53 @@ type TaskData = {
   duration: number;
 };
 
+type CpmResultData = {
+  es: number;
+  lc: number;
+  isCritical: boolean;
+  isIsolated: boolean;
+};
+
 type Props = {
   task: TaskData;
+  cpmResult?: CpmResultData | null;
   onSave: (name: string, duration: number) => void;
   onDelete: () => void;
   onClose: () => void;
 };
 
-export default function TaskEditPanel({ task, onSave, onDelete, onClose }: Props) {
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <label
+        style={{
+          display: "block",
+          fontSize: 12,
+          color: "#525252",
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </label>
+      <div
+        style={{
+          height: 40,
+          backgroundColor: "#f4f4f4",
+          padding: "0 16px",
+          display: "flex",
+          alignItems: "center",
+          fontSize: 14,
+          color: "#161616",
+          fontFamily: "inherit",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+export default function TaskEditPanel({ task, cpmResult, onSave, onDelete, onClose }: Props) {
   const [name, setName] = useState(task.name);
   const [durationStr, setDurationStr] = useState(String(task.duration));
   const [error, setError] = useState("");
@@ -183,6 +222,81 @@ export default function TaskEditPanel({ task, onSave, onDelete, onClose }: Props
             </p>
           )}
         </div>
+
+        {/* CPM 計算結果（読み取り専用） */}
+        {cpmResult && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div
+              style={{
+                height: 1,
+                backgroundColor: "#e0e0e0",
+              }}
+            />
+
+            {cpmResult.isIsolated ? (
+              <div>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#525252",
+                    marginBottom: 8,
+                  }}
+                >
+                  計算結果
+                </p>
+                <p style={{ fontSize: 13, color: "#6f6f6f" }}>
+                  孤立タスク（計算対象外）
+                </p>
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <ReadOnlyField label="最早開始時間（ES）" value={String(cpmResult.es)} />
+                  <ReadOnlyField label="最遅完了時間（LC）" value={String(cpmResult.lc)} />
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#525252",
+                    marginBottom: 12,
+                  }}
+                >
+                  計算結果
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <ReadOnlyField label="最早開始時間（ES）" value={String(cpmResult.es)} />
+                  <ReadOnlyField label="最遅完了時間（LC）" value={String(cpmResult.lc)} />
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 12,
+                        color: "#525252",
+                        marginBottom: 8,
+                      }}
+                    >
+                      クリティカルパス
+                    </label>
+                    <div
+                      style={{
+                        height: 40,
+                        backgroundColor: "#f4f4f4",
+                        padding: "0 16px",
+                        display: "flex",
+                        alignItems: "center",
+                        fontSize: 14,
+                        color: cpmResult.isCritical ? "#24a148" : "#6f6f6f",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {cpmResult.isCritical ? "あり" : "なし"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ボタン */}
