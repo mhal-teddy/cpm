@@ -39,7 +39,14 @@ type DraggingTask = {
   taskId: number;
   ghostCol: number;
   ghostRow: number;
+  originCol: number;
+  originRow: number;
+  didMove: boolean;
 };
+
+type SelectedItem =
+  | { type: "task"; id: number }
+  | { type: "arrow"; id: number };
 
 function getConnectorPoint(task: Task, side: Side): { x: number; y: number } {
   const cx = task.col * CELL_SIZE;
@@ -68,6 +75,7 @@ export default function GridCanvas() {
   const [draggingArrow, setDraggingArrow] = useState<DraggingArrow | null>(null);
   const [targetConnector, setTargetConnector] = useState<ConnectorRef | null>(null);
   const [draggingTask, setDraggingTask] = useState<DraggingTask | null>(null);
+  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -80,6 +88,26 @@ export default function GridCanvas() {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Backspace" && e.key !== "Delete") return;
+      if (!selectedItem) return;
+      if (selectedItem.type === "task") {
+        const id = selectedItem.id;
+        setTasks((prev) => prev.filter((t) => t.id !== id));
+        setArrows((prev) =>
+          prev.filter((a) => a.fromTaskId !== id && a.toTaskId !== id)
+        );
+      } else {
+        const id = selectedItem.id;
+        setArrows((prev) => prev.filter((a) => a.id !== id));
+      }
+      setSelectedItem(null);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedItem]);
 
   const cols = Math.floor(containerSize.width / CELL_SIZE);
   const rows = Math.floor(containerSize.height / CELL_SIZE);
@@ -123,7 +151,14 @@ export default function GridCanvas() {
     if (draggingArrow) return;
     e.stopPropagation();
     const task = tasks.find((t) => t.id === taskId)!;
-    setDraggingTask({ taskId, ghostCol: task.col, ghostRow: task.row });
+    setDraggingTask({
+      taskId,
+      ghostCol: task.col,
+      ghostRow: task.row,
+      originCol: task.col,
+      originRow: task.row,
+      didMove: false,
+    });
   }
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
@@ -138,11 +173,18 @@ export default function GridCanvas() {
     if (draggingTask) {
       const col = Math.round(x / CELL_SIZE);
       const row = Math.round(y / CELL_SIZE);
-      setDraggingTask((prev) => prev && {
-        ...prev,
-        ghostCol: Math.max(1, Math.min(cols - 1, col)),
-        ghostRow: Math.max(1, Math.min(rows - 1, row)),
-      });
+      const newCol = Math.max(1, Math.min(cols - 1, col));
+      const newRow = Math.max(1, Math.min(rows - 1, row));
+      const moved =
+        newCol !== draggingTask.originCol || newRow !== draggingTask.originRow;
+      setDraggingTask((prev) =>
+        prev && {
+          ...prev,
+          ghostCol: newCol,
+          ghostRow: newRow,
+          didMove: prev.didMove || moved,
+        }
+      );
       return;
     }
 
@@ -157,8 +199,10 @@ export default function GridCanvas() {
 
   function handleMouseUp() {
     if (draggingTask) {
-      const { taskId, ghostCol, ghostRow } = draggingTask;
-      if (canPlaceExcluding(ghostCol, ghostRow, taskId)) {
+      const { taskId, ghostCol, ghostRow, didMove } = draggingTask;
+      if (!didMove) {
+        setSelectedItem({ type: "task", id: taskId });
+      } else if (canPlaceExcluding(ghostCol, ghostRow, taskId)) {
         setTasks((prev) =>
           prev.map((t) => (t.id === taskId ? { ...t, col: ghostCol, row: ghostRow } : t))
         );
@@ -235,6 +279,7 @@ export default function GridCanvas() {
             setDraggingTask(null);
           }}
           onMouseUp={handleMouseUp}
+          onClick={() => setSelectedItem(null)}
           style={{ cursor: draggingArrow ? "crosshair" : draggingTask ? "grabbing" : "default" }}
         >
           <defs>
@@ -247,6 +292,16 @@ export default function GridCanvas() {
               orient="auto"
             >
               <path d="M0,0 L0,6 L8,3 z" fill="#161616" />
+            </marker>
+            <marker
+              id="arrowhead-selected"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L8,3 z" fill="#0f62fe" />
             </marker>
             <marker
               id="arrowhead-preview"
@@ -269,18 +324,38 @@ export default function GridCanvas() {
             const effTo = getEffectiveTask(toTask);
             const from = getConnectorPoint(effFrom, arrow.fromSide);
             const to = getConnectorPoint(effTo, arrow.toSide);
+            const isSelected =
+              selectedItem?.type === "arrow" && selectedItem.id === arrow.id;
             return (
-              <line
-                key={arrow.id}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                stroke="#161616"
-                strokeWidth={1.5}
-                markerEnd="url(#arrowhead)"
-                pointerEvents="none"
-              />
+              <g key={arrow.id}>
+                {/* ヒットエリア用透明線 */}
+                <line
+                  x1={from.x}
+                  y1={from.y}
+                  x2={to.x}
+                  y2={to.y}
+                  stroke="transparent"
+                  strokeWidth={12}
+                  style={{ cursor: "pointer" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedItem({ type: "arrow", id: arrow.id });
+                  }}
+                />
+                {/* 表示用線 */}
+                <line
+                  x1={from.x}
+                  y1={from.y}
+                  x2={to.x}
+                  y2={to.y}
+                  stroke={isSelected ? "#0f62fe" : "#161616"}
+                  strokeWidth={isSelected ? 2 : 1.5}
+                  markerEnd={
+                    isSelected ? "url(#arrowhead-selected)" : "url(#arrowhead)"
+                  }
+                  pointerEvents="none"
+                />
+              </g>
             );
           })}
 
@@ -288,9 +363,21 @@ export default function GridCanvas() {
           {tasks.map((task) => {
             const eff = getEffectiveTask(task);
             const isDragging = draggingTask?.taskId === task.id;
+            const isSelected =
+              selectedItem?.type === "task" && selectedItem.id === task.id;
             const dropValid =
               isDragging &&
               canPlaceExcluding(draggingTask!.ghostCol, draggingTask!.ghostRow, task.id);
+
+            let strokeColor = "#c6c6c6";
+            let strokeWidth = 1;
+            if (isDragging) {
+              strokeColor = dropValid ? "#0f62fe" : "#da1e28";
+              strokeWidth = 2;
+            } else if (isSelected) {
+              strokeColor = "#0f62fe";
+              strokeWidth = 2;
+            }
 
             return (
               <g key={task.id} opacity={isDragging ? 0.85 : 1}>
@@ -300,14 +387,8 @@ export default function GridCanvas() {
                   width={TASK_SIZE}
                   height={TASK_SIZE}
                   fill="#f4f4f4"
-                  stroke={
-                    isDragging
-                      ? dropValid
-                        ? "#0f62fe"
-                        : "#da1e28"
-                      : "#c6c6c6"
-                  }
-                  strokeWidth={isDragging ? 2 : 1}
+                  stroke={strokeColor}
+                  strokeWidth={strokeWidth}
                   style={{ cursor: isDragging ? "grabbing" : "grab" }}
                   onMouseDown={(e) => handleTaskMouseDown(e, task.id)}
                 />
