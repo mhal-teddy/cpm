@@ -5,7 +5,12 @@ import { useEffect, useRef, useState } from "react";
 const CELL_SIZE = 32;
 const TASK_SIZE = 2 * CELL_SIZE;
 const DOT_RADIUS = 3;
-const DOT_COLOR = "#c6c6c6"; // Gray 30 / --cds-border-subtle
+const DOT_COLOR = "#c6c6c6";
+const CONNECTOR_RADIUS = 5;
+const CONNECTOR_RADIUS_HOVER = 7;
+const SIDES = ["top", "bottom", "left", "right"] as const;
+
+type Side = (typeof SIDES)[number];
 
 type Task = {
   id: number;
@@ -13,12 +18,49 @@ type Task = {
   row: number;
 };
 
+type Arrow = {
+  id: number;
+  fromTaskId: number;
+  fromSide: Side;
+  toTaskId: number;
+  toSide: Side;
+};
+
+type ConnectorRef = { taskId: number; side: Side };
+
+type DraggingArrow = {
+  fromTaskId: number;
+  fromSide: Side;
+  curX: number;
+  curY: number;
+};
+
+function getConnectorPoint(task: Task, side: Side): { x: number; y: number } {
+  const cx = task.col * CELL_SIZE;
+  const cy = task.row * CELL_SIZE;
+  switch (side) {
+    case "top":    return { x: cx, y: cy - CELL_SIZE };
+    case "bottom": return { x: cx, y: cy + CELL_SIZE };
+    case "left":   return { x: cx - CELL_SIZE, y: cy };
+    case "right":  return { x: cx + CELL_SIZE, y: cy };
+  }
+}
+
+function isDuplicateArrow(fromTaskId: number, toTaskId: number, arrows: Arrow[]): boolean {
+  return arrows.some((a) => a.fromTaskId === fromTaskId && a.toTaskId === toTaskId);
+}
+
 export default function GridCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [nextId, setNextId] = useState(1);
   const [hoveredDot, setHoveredDot] = useState<{ col: number; row: number } | null>(null);
+  const [arrows, setArrows] = useState<Arrow[]>([]);
+  const [nextArrowId, setNextArrowId] = useState(1);
+  const [hoveredConnector, setHoveredConnector] = useState<ConnectorRef | null>(null);
+  const [draggingArrow, setDraggingArrow] = useState<DraggingArrow | null>(null);
+  const [targetConnector, setTargetConnector] = useState<ConnectorRef | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -60,6 +102,11 @@ export default function GridCanvas() {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    if (draggingArrow) {
+      setDraggingArrow((prev) => prev && { ...prev, curX: x, curY: y });
+    }
+
     const col = Math.round(x / CELL_SIZE);
     const row = Math.round(y / CELL_SIZE);
     if (col >= 0 && col <= cols && row >= 0 && row <= rows) {
@@ -69,7 +116,56 @@ export default function GridCanvas() {
     }
   }
 
-  const showPlus = hoveredDot !== null && canPlace(hoveredDot.col, hoveredDot.row);
+  function handleMouseUp() {
+    if (draggingArrow && targetConnector) {
+      const { fromTaskId, fromSide } = draggingArrow;
+      const { taskId: toTaskId, side: toSide } = targetConnector;
+      if (
+        fromTaskId !== toTaskId &&
+        !isDuplicateArrow(fromTaskId, toTaskId, arrows)
+      ) {
+        setArrows((prev) => [
+          ...prev,
+          { id: nextArrowId, fromTaskId, fromSide, toTaskId, toSide },
+        ]);
+        setNextArrowId((prev) => prev + 1);
+      }
+    }
+    setDraggingArrow(null);
+    setTargetConnector(null);
+  }
+
+  function handleConnectorMouseDown(e: React.MouseEvent, taskId: number, side: Side) {
+    e.stopPropagation();
+    const svgRect = (e.currentTarget.closest("svg") as SVGSVGElement).getBoundingClientRect();
+    setDraggingArrow({
+      fromTaskId: taskId,
+      fromSide: side,
+      curX: e.clientX - svgRect.left,
+      curY: e.clientY - svgRect.top,
+    });
+  }
+
+  function handleConnectorMouseEnter(taskId: number, side: Side) {
+    setHoveredConnector({ taskId, side });
+    if (draggingArrow) {
+      setTargetConnector({ taskId, side });
+    }
+  }
+
+  function handleConnectorMouseLeave() {
+    setHoveredConnector(null);
+    setTargetConnector(null);
+  }
+
+  const showPlus =
+    hoveredDot !== null &&
+    canPlace(hoveredDot.col, hoveredDot.row) &&
+    !draggingArrow;
+
+  const draggingFromTask = draggingArrow
+    ? tasks.find((t) => t.id === draggingArrow.fromTaskId)
+    : null;
 
   return (
     <div
@@ -81,8 +177,60 @@ export default function GridCanvas() {
           width={gridWidth}
           height={gridHeight}
           onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHoveredDot(null)}
+          onMouseLeave={() => {
+            setHoveredDot(null);
+            setDraggingArrow(null);
+            setTargetConnector(null);
+          }}
+          onMouseUp={handleMouseUp}
+          style={{ cursor: draggingArrow ? "crosshair" : "default" }}
         >
+          <defs>
+            <marker
+              id="arrowhead"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L8,3 z" fill="#161616" />
+            </marker>
+            <marker
+              id="arrowhead-preview"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L0,6 L8,3 z" fill="#0f62fe" />
+            </marker>
+          </defs>
+
+          {/* 確定済み矢印 */}
+          {arrows.map((arrow) => {
+            const fromTask = tasks.find((t) => t.id === arrow.fromTaskId);
+            const toTask = tasks.find((t) => t.id === arrow.toTaskId);
+            if (!fromTask || !toTask) return null;
+            const from = getConnectorPoint(fromTask, arrow.fromSide);
+            const to = getConnectorPoint(toTask, arrow.toSide);
+            return (
+              <line
+                key={arrow.id}
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                stroke="#161616"
+                strokeWidth={1.5}
+                markerEnd="url(#arrowhead)"
+                pointerEvents="none"
+              />
+            );
+          })}
+
+          {/* タスク */}
           {tasks.map((task) => (
             <g key={task.id}>
               <rect
@@ -105,9 +253,44 @@ export default function GridCanvas() {
               >
                 {task.id}
               </text>
+
+              {/* コネクタポイント */}
+              {SIDES.map((side) => {
+                const pt = getConnectorPoint(task, side);
+                const isHovered =
+                  hoveredConnector?.taskId === task.id &&
+                  hoveredConnector?.side === side;
+                const isTarget =
+                  targetConnector?.taskId === task.id &&
+                  targetConnector?.side === side;
+                const showConnector = isHovered || isTarget || !!draggingArrow;
+                return (
+                  <circle
+                    key={side}
+                    cx={pt.x}
+                    cy={pt.y}
+                    r={isHovered || isTarget ? CONNECTOR_RADIUS_HOVER : CONNECTOR_RADIUS}
+                    fill={
+                      isTarget
+                        ? "#0043ce"
+                        : isHovered
+                        ? "#0f62fe"
+                        : "#c6c6c6"
+                    }
+                    opacity={showConnector ? 1 : 0}
+                    style={{ cursor: "crosshair" }}
+                    onMouseEnter={() => handleConnectorMouseEnter(task.id, side)}
+                    onMouseLeave={handleConnectorMouseLeave}
+                    onMouseDown={(e) =>
+                      handleConnectorMouseDown(e, task.id, side)
+                    }
+                  />
+                );
+              })}
             </g>
           ))}
 
+          {/* グリッドドット */}
           {dots.map(({ x, y }) => (
             <circle
               key={`${x}-${y}`}
@@ -115,9 +298,11 @@ export default function GridCanvas() {
               cy={y}
               r={DOT_RADIUS}
               fill={DOT_COLOR}
+              pointerEvents="none"
             />
           ))}
 
+          {/* タスク追加ボタン */}
           {showPlus && (
             <g
               transform={`translate(${hoveredDot!.col * CELL_SIZE}, ${hoveredDot!.row * CELL_SIZE})`}
@@ -137,6 +322,21 @@ export default function GridCanvas() {
                 +
               </text>
             </g>
+          )}
+
+          {/* ドラッグ中の仮矢印 */}
+          {draggingArrow && draggingFromTask && (
+            <line
+              x1={getConnectorPoint(draggingFromTask, draggingArrow.fromSide).x}
+              y1={getConnectorPoint(draggingFromTask, draggingArrow.fromSide).y}
+              x2={draggingArrow.curX}
+              y2={draggingArrow.curY}
+              stroke="#0f62fe"
+              strokeWidth={2}
+              strokeDasharray="6 3"
+              markerEnd="url(#arrowhead-preview)"
+              pointerEvents="none"
+            />
           )}
         </svg>
       )}
