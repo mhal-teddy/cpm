@@ -44,6 +44,17 @@ type DraggingTask = {
   didMove: boolean;
 };
 
+type ReassigningArrowHandle = {
+  arrowId: number;
+  handle: "from" | "to";
+  origFromTaskId: number;
+  origFromSide: Side;
+  origToTaskId: number;
+  origToSide: Side;
+  curX: number;
+  curY: number;
+};
+
 type SelectedItem =
   | { type: "task"; id: number }
   | { type: "arrow"; id: number };
@@ -75,6 +86,7 @@ export default function GridCanvas() {
   const [draggingArrow, setDraggingArrow] = useState<DraggingArrow | null>(null);
   const [targetConnector, setTargetConnector] = useState<ConnectorRef | null>(null);
   const [draggingTask, setDraggingTask] = useState<DraggingTask | null>(null);
+  const [draggingArrowHandle, setDraggingArrowHandle] = useState<ReassigningArrowHandle | null>(null);
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
 
   useEffect(() => {
@@ -161,6 +173,25 @@ export default function GridCanvas() {
     });
   }
 
+  function handleArrowHandleMouseDown(
+    e: React.MouseEvent,
+    arrow: Arrow,
+    handle: "from" | "to"
+  ) {
+    e.stopPropagation();
+    const svgRect = (e.currentTarget.closest("svg") as SVGSVGElement).getBoundingClientRect();
+    setDraggingArrowHandle({
+      arrowId: arrow.id,
+      handle,
+      origFromTaskId: arrow.fromTaskId,
+      origFromSide: arrow.fromSide,
+      origToTaskId: arrow.toTaskId,
+      origToSide: arrow.toSide,
+      curX: e.clientX - svgRect.left,
+      curY: e.clientY - svgRect.top,
+    });
+  }
+
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -168,6 +199,10 @@ export default function GridCanvas() {
 
     if (draggingArrow) {
       setDraggingArrow((prev) => prev && { ...prev, curX: x, curY: y });
+    }
+
+    if (draggingArrowHandle) {
+      setDraggingArrowHandle((prev) => prev && { ...prev, curX: x, curY: y });
     }
 
     if (draggingTask) {
@@ -211,6 +246,38 @@ export default function GridCanvas() {
       return;
     }
 
+    if (draggingArrowHandle) {
+      const { arrowId, handle, origFromTaskId, origFromSide, origToTaskId, origToSide } =
+        draggingArrowHandle;
+      if (targetConnector) {
+        const { taskId: newTaskId, side: newSide } = targetConnector;
+        const newFromTaskId = handle === "from" ? newTaskId : origFromTaskId;
+        const newFromSide   = handle === "from" ? newSide   : origFromSide;
+        const newToTaskId   = handle === "to"   ? newTaskId : origToTaskId;
+        const newToSide     = handle === "to"   ? newSide   : origToSide;
+        const selfLoop = newFromTaskId === newToTaskId;
+        const duplicate = arrows.some(
+          (a) =>
+            a.id !== arrowId &&
+            a.fromTaskId === newFromTaskId &&
+            a.toTaskId === newToTaskId
+        );
+        if (!selfLoop && !duplicate) {
+          setArrows((prev) =>
+            prev.map((a) =>
+              a.id === arrowId
+                ? { ...a, fromTaskId: newFromTaskId, fromSide: newFromSide,
+                           toTaskId: newToTaskId, toSide: newToSide }
+                : a
+            )
+          );
+        }
+      }
+      setDraggingArrowHandle(null);
+      setTargetConnector(null);
+      return;
+    }
+
     if (draggingArrow && targetConnector) {
       const { fromTaskId, fromSide } = draggingArrow;
       const { taskId: toTaskId, side: toSide } = targetConnector;
@@ -242,7 +309,7 @@ export default function GridCanvas() {
 
   function handleConnectorMouseEnter(taskId: number, side: Side) {
     setHoveredConnector({ taskId, side });
-    if (draggingArrow) {
+    if (draggingArrow || draggingArrowHandle) {
       setTargetConnector({ taskId, side });
     }
   }
@@ -256,7 +323,8 @@ export default function GridCanvas() {
     hoveredDot !== null &&
     canPlace(hoveredDot.col, hoveredDot.row) &&
     !draggingArrow &&
-    !draggingTask;
+    !draggingTask &&
+    !draggingArrowHandle;
 
   const draggingFromTask = draggingArrow
     ? tasks.find((t) => t.id === draggingArrow.fromTaskId)
@@ -275,12 +343,19 @@ export default function GridCanvas() {
           onMouseLeave={() => {
             setHoveredDot(null);
             setDraggingArrow(null);
+            setDraggingArrowHandle(null);
             setTargetConnector(null);
             setDraggingTask(null);
           }}
           onMouseUp={handleMouseUp}
           onClick={() => setSelectedItem(null)}
-          style={{ cursor: draggingArrow ? "crosshair" : draggingTask ? "grabbing" : "default" }}
+          style={{
+            cursor: draggingArrow || draggingArrowHandle
+              ? "crosshair"
+              : draggingTask
+              ? "grabbing"
+              : "default",
+          }}
         >
           <defs>
             <marker
@@ -326,6 +401,38 @@ export default function GridCanvas() {
             const to = getConnectorPoint(effTo, arrow.toSide);
             const isSelected =
               selectedItem?.type === "arrow" && selectedItem.id === arrow.id;
+            const isBeingReassigned = draggingArrowHandle?.arrowId === arrow.id;
+
+            if (isBeingReassigned) {
+              const dah = draggingArrowHandle!;
+              const fixedPt = dah.handle === "from" ? to : from;
+              let movingPt: { x: number; y: number };
+              if (targetConnector) {
+                const tTask = tasks.find((t) => t.id === targetConnector.taskId);
+                movingPt = tTask
+                  ? getConnectorPoint(getEffectiveTask(tTask), targetConnector.side)
+                  : { x: dah.curX, y: dah.curY };
+              } else {
+                movingPt = { x: dah.curX, y: dah.curY };
+              }
+              const previewFrom = dah.handle === "from" ? movingPt : fixedPt;
+              const previewTo   = dah.handle === "from" ? fixedPt  : movingPt;
+              return (
+                <line
+                  key={arrow.id}
+                  x1={previewFrom.x}
+                  y1={previewFrom.y}
+                  x2={previewTo.x}
+                  y2={previewTo.y}
+                  stroke="#0f62fe"
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  markerEnd="url(#arrowhead-preview)"
+                  pointerEvents="none"
+                />
+              );
+            }
+
             return (
               <g key={arrow.id}>
                 {/* ヒットエリア用透明線 */}
@@ -355,6 +462,27 @@ export default function GridCanvas() {
                   }
                   pointerEvents="none"
                 />
+                {/* 選択時の端点ハンドル */}
+                {isSelected && (
+                  <>
+                    <circle
+                      cx={from.x}
+                      cy={from.y}
+                      r={6}
+                      fill="#0f62fe"
+                      style={{ cursor: "crosshair" }}
+                      onMouseDown={(e) => handleArrowHandleMouseDown(e, arrow, "from")}
+                    />
+                    <circle
+                      cx={to.x}
+                      cy={to.y}
+                      r={6}
+                      fill="#0f62fe"
+                      style={{ cursor: "crosshair" }}
+                      onMouseDown={(e) => handleArrowHandleMouseDown(e, arrow, "to")}
+                    />
+                  </>
+                )}
               </g>
             );
           })}
@@ -416,7 +544,8 @@ export default function GridCanvas() {
                     targetConnector?.taskId === task.id &&
                     targetConnector?.side === side;
                   const showConnector =
-                    !draggingTask && (isHovered || isTarget || !!draggingArrow);
+                    !draggingTask &&
+                    (isHovered || isTarget || !!draggingArrow || !!draggingArrowHandle);
                   return (
                     <circle
                       key={side}
@@ -478,7 +607,7 @@ export default function GridCanvas() {
             </g>
           )}
 
-          {/* ドラッグ中の仮矢印 */}
+          {/* ドラッグ中の仮矢印（新規作成） */}
           {draggingArrow && draggingFromTask && (
             <line
               x1={getConnectorPoint(draggingFromTask, draggingArrow.fromSide).x}
