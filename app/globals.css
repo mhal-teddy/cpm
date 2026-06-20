@@ -35,3 +35,16 @@ body {
   font-family: var(--font-noto-sans-jp), "Hiragino Sans", "Yu Gothic", Meiryo,
     Arial, sans-serif;
 }
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  svg {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 190mm;
+  }
+}
