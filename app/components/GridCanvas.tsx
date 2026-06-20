@@ -35,6 +35,12 @@ type DraggingArrow = {
   curY: number;
 };
 
+type DraggingTask = {
+  taskId: number;
+  ghostCol: number;
+  ghostRow: number;
+};
+
 function getConnectorPoint(task: Task, side: Side): { x: number; y: number } {
   const cx = task.col * CELL_SIZE;
   const cy = task.row * CELL_SIZE;
@@ -61,6 +67,7 @@ export default function GridCanvas() {
   const [hoveredConnector, setHoveredConnector] = useState<ConnectorRef | null>(null);
   const [draggingArrow, setDraggingArrow] = useState<DraggingArrow | null>(null);
   const [targetConnector, setTargetConnector] = useState<ConnectorRef | null>(null);
+  const [draggingTask, setDraggingTask] = useState<DraggingTask | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -93,9 +100,30 @@ export default function GridCanvas() {
     );
   }
 
+  function canPlaceExcluding(col: number, row: number, excludeId: number): boolean {
+    if (col < 1 || row < 1 || col > cols - 1 || row > rows - 1) return false;
+    return tasks.every(
+      (t) => t.id === excludeId || Math.abs(t.col - col) >= 2 || Math.abs(t.row - row) >= 2
+    );
+  }
+
+  function getEffectiveTask(task: Task): Task {
+    if (draggingTask && task.id === draggingTask.taskId) {
+      return { ...task, col: draggingTask.ghostCol, row: draggingTask.ghostRow };
+    }
+    return task;
+  }
+
   function addTask(col: number, row: number) {
     setTasks((prev) => [...prev, { id: nextId, col, row }]);
     setNextId((prev) => prev + 1);
+  }
+
+  function handleTaskMouseDown(e: React.MouseEvent, taskId: number) {
+    if (draggingArrow) return;
+    e.stopPropagation();
+    const task = tasks.find((t) => t.id === taskId)!;
+    setDraggingTask({ taskId, ghostCol: task.col, ghostRow: task.row });
   }
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
@@ -105,6 +133,17 @@ export default function GridCanvas() {
 
     if (draggingArrow) {
       setDraggingArrow((prev) => prev && { ...prev, curX: x, curY: y });
+    }
+
+    if (draggingTask) {
+      const col = Math.round(x / CELL_SIZE);
+      const row = Math.round(y / CELL_SIZE);
+      setDraggingTask((prev) => prev && {
+        ...prev,
+        ghostCol: Math.max(1, Math.min(cols - 1, col)),
+        ghostRow: Math.max(1, Math.min(rows - 1, row)),
+      });
+      return;
     }
 
     const col = Math.round(x / CELL_SIZE);
@@ -117,6 +156,17 @@ export default function GridCanvas() {
   }
 
   function handleMouseUp() {
+    if (draggingTask) {
+      const { taskId, ghostCol, ghostRow } = draggingTask;
+      if (canPlaceExcluding(ghostCol, ghostRow, taskId)) {
+        setTasks((prev) =>
+          prev.map((t) => (t.id === taskId ? { ...t, col: ghostCol, row: ghostRow } : t))
+        );
+      }
+      setDraggingTask(null);
+      return;
+    }
+
     if (draggingArrow && targetConnector) {
       const { fromTaskId, fromSide } = draggingArrow;
       const { taskId: toTaskId, side: toSide } = targetConnector;
@@ -161,7 +211,8 @@ export default function GridCanvas() {
   const showPlus =
     hoveredDot !== null &&
     canPlace(hoveredDot.col, hoveredDot.row) &&
-    !draggingArrow;
+    !draggingArrow &&
+    !draggingTask;
 
   const draggingFromTask = draggingArrow
     ? tasks.find((t) => t.id === draggingArrow.fromTaskId)
@@ -181,9 +232,10 @@ export default function GridCanvas() {
             setHoveredDot(null);
             setDraggingArrow(null);
             setTargetConnector(null);
+            setDraggingTask(null);
           }}
           onMouseUp={handleMouseUp}
-          style={{ cursor: draggingArrow ? "crosshair" : "default" }}
+          style={{ cursor: draggingArrow ? "crosshair" : draggingTask ? "grabbing" : "default" }}
         >
           <defs>
             <marker
@@ -213,8 +265,10 @@ export default function GridCanvas() {
             const fromTask = tasks.find((t) => t.id === arrow.fromTaskId);
             const toTask = tasks.find((t) => t.id === arrow.toTaskId);
             if (!fromTask || !toTask) return null;
-            const from = getConnectorPoint(fromTask, arrow.fromSide);
-            const to = getConnectorPoint(toTask, arrow.toSide);
+            const effFrom = getEffectiveTask(fromTask);
+            const effTo = getEffectiveTask(toTask);
+            const from = getConnectorPoint(effFrom, arrow.fromSide);
+            const to = getConnectorPoint(effTo, arrow.toSide);
             return (
               <line
                 key={arrow.id}
@@ -231,64 +285,82 @@ export default function GridCanvas() {
           })}
 
           {/* タスク */}
-          {tasks.map((task) => (
-            <g key={task.id}>
-              <rect
-                x={(task.col - 1) * CELL_SIZE}
-                y={(task.row - 1) * CELL_SIZE}
-                width={TASK_SIZE}
-                height={TASK_SIZE}
-                fill="#f4f4f4"
-                stroke="#c6c6c6"
-                strokeWidth={1}
-              />
-              <text
-                x={task.col * CELL_SIZE}
-                y={task.row * CELL_SIZE}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fontFamily="'Noto Sans Mono', 'IBM Plex Mono', monospace"
-                fontSize={14}
-                fill="#161616"
-              >
-                {task.id}
-              </text>
+          {tasks.map((task) => {
+            const eff = getEffectiveTask(task);
+            const isDragging = draggingTask?.taskId === task.id;
+            const dropValid =
+              isDragging &&
+              canPlaceExcluding(draggingTask!.ghostCol, draggingTask!.ghostRow, task.id);
 
-              {/* コネクタポイント */}
-              {SIDES.map((side) => {
-                const pt = getConnectorPoint(task, side);
-                const isHovered =
-                  hoveredConnector?.taskId === task.id &&
-                  hoveredConnector?.side === side;
-                const isTarget =
-                  targetConnector?.taskId === task.id &&
-                  targetConnector?.side === side;
-                const showConnector = isHovered || isTarget || !!draggingArrow;
-                return (
-                  <circle
-                    key={side}
-                    cx={pt.x}
-                    cy={pt.y}
-                    r={isHovered || isTarget ? CONNECTOR_RADIUS_HOVER : CONNECTOR_RADIUS}
-                    fill={
-                      isTarget
-                        ? "#0043ce"
-                        : isHovered
+            return (
+              <g key={task.id} opacity={isDragging ? 0.85 : 1}>
+                <rect
+                  x={(eff.col - 1) * CELL_SIZE}
+                  y={(eff.row - 1) * CELL_SIZE}
+                  width={TASK_SIZE}
+                  height={TASK_SIZE}
+                  fill="#f4f4f4"
+                  stroke={
+                    isDragging
+                      ? dropValid
                         ? "#0f62fe"
-                        : "#c6c6c6"
-                    }
-                    opacity={showConnector ? 1 : 0}
-                    style={{ cursor: "crosshair" }}
-                    onMouseEnter={() => handleConnectorMouseEnter(task.id, side)}
-                    onMouseLeave={handleConnectorMouseLeave}
-                    onMouseDown={(e) =>
-                      handleConnectorMouseDown(e, task.id, side)
-                    }
-                  />
-                );
-              })}
-            </g>
-          ))}
+                        : "#da1e28"
+                      : "#c6c6c6"
+                  }
+                  strokeWidth={isDragging ? 2 : 1}
+                  style={{ cursor: isDragging ? "grabbing" : "grab" }}
+                  onMouseDown={(e) => handleTaskMouseDown(e, task.id)}
+                />
+                <text
+                  x={eff.col * CELL_SIZE}
+                  y={eff.row * CELL_SIZE}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontFamily="'Noto Sans Mono', 'IBM Plex Mono', monospace"
+                  fontSize={14}
+                  fill="#161616"
+                  pointerEvents="none"
+                >
+                  {task.id}
+                </text>
+
+                {/* コネクタポイント */}
+                {SIDES.map((side) => {
+                  const pt = getConnectorPoint(eff, side);
+                  const isHovered =
+                    hoveredConnector?.taskId === task.id &&
+                    hoveredConnector?.side === side;
+                  const isTarget =
+                    targetConnector?.taskId === task.id &&
+                    targetConnector?.side === side;
+                  const showConnector =
+                    !draggingTask && (isHovered || isTarget || !!draggingArrow);
+                  return (
+                    <circle
+                      key={side}
+                      cx={pt.x}
+                      cy={pt.y}
+                      r={isHovered || isTarget ? CONNECTOR_RADIUS_HOVER : CONNECTOR_RADIUS}
+                      fill={
+                        isTarget
+                          ? "#0043ce"
+                          : isHovered
+                          ? "#0f62fe"
+                          : "#c6c6c6"
+                      }
+                      opacity={showConnector ? 1 : 0}
+                      style={{ cursor: "crosshair" }}
+                      onMouseEnter={() => handleConnectorMouseEnter(task.id, side)}
+                      onMouseLeave={handleConnectorMouseLeave}
+                      onMouseDown={(e) =>
+                        handleConnectorMouseDown(e, task.id, side)
+                      }
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
 
           {/* グリッドドット */}
           {dots.map(({ x, y }) => (
