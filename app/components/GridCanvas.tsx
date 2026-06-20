@@ -312,6 +312,7 @@ export default function GridCanvas() {
       : null;
 
   return (
+    <>
     <div
       ref={containerRef}
       className="flex-1 flex items-center justify-center overflow-hidden bg-white"
@@ -556,13 +557,12 @@ export default function GridCanvas() {
       )}
       {/* ボタン群 */}
       <div
-        className="print:hidden"
+        className="print:hidden flex"
         style={{
           position: "fixed",
           top: 16,
           right: editingTask ? 336 : 16,
           zIndex: 90,
-          display: "flex",
           gap: 8,
         }}
       >
@@ -621,56 +621,6 @@ export default function GridCanvas() {
         </div>
       )}
 
-      {/* 印刷専用テーブル（2ページ目） */}
-      <div className="hidden print:block" style={{ pageBreakBefore: "always" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-          <thead>
-            <tr>
-              {["Critical Path", "ID", "タスク名", "所要時間", "最早開始時間", "最遅完了時間", "依存"].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    border: "1px solid #333",
-                    padding: "4px 8px",
-                    textAlign: "left",
-                    backgroundColor: "#f0f0f0",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.map((task) => {
-              const result = cpmResults?.get(task.id);
-              const deps = arrows
-                .filter((a) => a.toTaskId === task.id)
-                .map((a) => a.fromTaskId)
-                .join(", ");
-              return (
-                <tr key={task.id}>
-                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
-                    {result ? (result.isCritical ? "○" : "−") : ""}
-                  </td>
-                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.id}</td>
-                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.name}</td>
-                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.duration}</td>
-                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
-                    {result != null ? result.es : ""}
-                  </td>
-                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
-                    {result != null ? result.lc : ""}
-                  </td>
-                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{deps}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
       {editingTask && (
         <TaskEditPanel
           task={editingTask}
@@ -694,5 +644,56 @@ export default function GridCanvas() {
         />
       )}
     </div>
+
+    {/* 印刷専用テーブル（2ページ目）: overflow-hidden コンテナの外に配置 */}
+    <div className="hidden print:block" style={{ breakBefore: "page" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+        <thead>
+          <tr>
+            {["Critical Path", "ID", "タスク名", "所要時間", "最早開始時間", "最遅完了時間", "依存"].map((h) => (
+              <th
+                key={h}
+                style={{
+                  border: "1px solid #333",
+                  padding: "4px 8px",
+                  textAlign: "left",
+                  backgroundColor: "#f0f0f0",
+                  fontFamily: "inherit",
+                }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.map((task) => {
+            const result = cpmResults?.get(task.id);
+            const deps = arrows
+              .filter((a) => a.toTaskId === task.id)
+              .map((a) => a.fromTaskId)
+              .join(", ");
+            return (
+              <tr key={task.id}>
+                <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
+                  {result ? (result.isCritical ? "○" : "−") : ""}
+                </td>
+                <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.id}</td>
+                <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.name}</td>
+                <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.duration}</td>
+                <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
+                  {result != null ? result.es : ""}
+                </td>
+                <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
+                  {result != null ? result.lc : ""}
+                </td>
+                <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{deps}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+    </>
   );
 }

@@ -42,6 +42,15 @@ body {
     margin: 10mm;
   }
 
+  /* インラインスタイルの display を確実に上書きするため !important を付与 */
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
   svg {
     width: 100% !important;
     height: auto !important;
