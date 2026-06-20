@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import TaskEditPanel from "./TaskEditPanel";
 
 const CELL_SIZE = 32;
 const TASK_SIZE = 2 * CELL_SIZE;
@@ -16,6 +17,8 @@ type Task = {
   id: number;
   col: number;
   row: number;
+  name: string;
+  duration: number;
 };
 
 type Arrow = {
@@ -92,6 +95,10 @@ export default function GridCanvas() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key !== "Backspace" && e.key !== "Delete") return;
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) return;
       if (!selectedItem) return;
       if (selectedItem.type === "task") {
         const id = selectedItem.id;
@@ -143,7 +150,7 @@ export default function GridCanvas() {
   }
 
   function addTask(col: number, row: number) {
-    setTasks((prev) => [...prev, { id: nextId, col, row }]);
+    setTasks((prev) => [...prev, { id: nextId, col, row, name: "", duration: 0 }]);
     setNextId((prev) => prev + 1);
   }
 
@@ -261,6 +268,11 @@ export default function GridCanvas() {
   const draggingFromTask = draggingArrow
     ? tasks.find((t) => t.id === draggingArrow.fromTaskId)
     : null;
+
+  const editingTask =
+    selectedItem?.type === "task"
+      ? (tasks.find((t) => t.id === selectedItem.id) ?? null)
+      : null;
 
   return (
     <div
@@ -493,6 +505,27 @@ export default function GridCanvas() {
             />
           )}
         </svg>
+      )}
+      {editingTask && (
+        <TaskEditPanel
+          task={editingTask}
+          onSave={(name, duration) => {
+            setTasks((prev) =>
+              prev.map((t) =>
+                t.id === editingTask.id ? { ...t, name, duration } : t
+              )
+            );
+          }}
+          onDelete={() => {
+            const id = editingTask.id;
+            setTasks((prev) => prev.filter((t) => t.id !== id));
+            setArrows((prev) =>
+              prev.filter((a) => a.fromTaskId !== id && a.toTaskId !== id)
+            );
+            setSelectedItem(null);
+          }}
+          onClose={() => setSelectedItem(null)}
+        />
       )}
     </div>
   );
