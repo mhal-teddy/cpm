@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import TaskEditPanel from "./TaskEditPanel";
 import { computeCpm, CpmTaskResult } from "../lib/cpm";
 
@@ -133,6 +134,23 @@ export default function GridCanvas() {
       setCpmResults(null);
       setCpmError(output.error);
     }
+  }
+
+  function handlePdf() {
+    const output = computeCpm(tasks, arrows);
+    flushSync(() => {
+      if (output.ok) {
+        setCpmResults(output.results);
+        setCpmError(null);
+      } else {
+        setCpmResults(null);
+        setCpmError(output.error);
+      }
+    });
+    const prev = document.title;
+    document.title = "cpm";
+    window.addEventListener("afterprint", () => { document.title = prev; }, { once: true });
+    window.print();
   }
 
   const cols = Math.floor(containerSize.width / CELL_SIZE);
@@ -302,6 +320,7 @@ export default function GridCanvas() {
         <svg
           width={gridWidth}
           height={gridHeight}
+          viewBox={`0 0 ${gridWidth} ${gridHeight}`}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => {
             setHoveredDot(null);
@@ -484,16 +503,18 @@ export default function GridCanvas() {
           })}
 
           {/* グリッドドット */}
-          {dots.map(({ x, y }) => (
-            <circle
-              key={`${x}-${y}`}
-              cx={x}
-              cy={y}
-              r={DOT_RADIUS}
-              fill={DOT_COLOR}
-              pointerEvents="none"
-            />
-          ))}
+          <g className="print:hidden">
+            {dots.map(({ x, y }) => (
+              <circle
+                key={`${x}-${y}`}
+                cx={x}
+                cy={y}
+                r={DOT_RADIUS}
+                fill={DOT_COLOR}
+                pointerEvents="none"
+              />
+            ))}
+          </g>
 
           {/* タスク追加ボタン */}
           {showPlus && (
@@ -533,31 +554,56 @@ export default function GridCanvas() {
           )}
         </svg>
       )}
-      {/* 計算ボタン */}
-      <button
-        onClick={handleCalculate}
+      {/* ボタン群 */}
+      <div
+        className="print:hidden"
         style={{
           position: "fixed",
           top: 16,
           right: editingTask ? 336 : 16,
           zIndex: 90,
-          height: 48,
-          padding: "0 24px",
-          backgroundColor: "#0f62fe",
-          color: "#ffffff",
-          border: "none",
-          borderRadius: 0,
-          fontSize: 14,
-          fontFamily: "inherit",
-          cursor: "pointer",
+          display: "flex",
+          gap: 8,
         }}
       >
-        計算
-      </button>
+        <button
+          onClick={handlePdf}
+          style={{
+            height: 48,
+            padding: "0 24px",
+            backgroundColor: "#393939",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: 0,
+            fontSize: 14,
+            fontFamily: "inherit",
+            cursor: "pointer",
+          }}
+        >
+          PDFに保存
+        </button>
+        <button
+          onClick={handleCalculate}
+          style={{
+            height: 48,
+            padding: "0 24px",
+            backgroundColor: "#0f62fe",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: 0,
+            fontSize: 14,
+            fontFamily: "inherit",
+            cursor: "pointer",
+          }}
+        >
+          計算
+        </button>
+      </div>
 
       {/* エラー通知 */}
       {cpmError && (
         <div
+          className="print:hidden"
           style={{
             position: "fixed",
             top: 72,
@@ -574,6 +620,56 @@ export default function GridCanvas() {
           {cpmError}
         </div>
       )}
+
+      {/* 印刷専用テーブル（2ページ目） */}
+      <div className="hidden print:block" style={{ pageBreakBefore: "always" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+          <thead>
+            <tr>
+              {["Critical Path", "ID", "タスク名", "所要時間", "最早開始時間", "最遅完了時間", "依存"].map((h) => (
+                <th
+                  key={h}
+                  style={{
+                    border: "1px solid #333",
+                    padding: "4px 8px",
+                    textAlign: "left",
+                    backgroundColor: "#f0f0f0",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.map((task) => {
+              const result = cpmResults?.get(task.id);
+              const deps = arrows
+                .filter((a) => a.toTaskId === task.id)
+                .map((a) => a.fromTaskId)
+                .join(", ");
+              return (
+                <tr key={task.id}>
+                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
+                    {result ? (result.isCritical ? "○" : "−") : ""}
+                  </td>
+                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.id}</td>
+                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.name}</td>
+                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{task.duration}</td>
+                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
+                    {result != null ? result.es : ""}
+                  </td>
+                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>
+                    {result != null ? result.lc : ""}
+                  </td>
+                  <td style={{ border: "1px solid #333", padding: "4px 8px" }}>{deps}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
       {editingTask && (
         <TaskEditPanel

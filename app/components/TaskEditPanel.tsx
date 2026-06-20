@@ -93,6 +93,7 @@ export default function TaskEditPanel({ task, cpmResult, onSave, onDelete, onClo
 
   return (
     <div
+      className="print:hidden"
       style={{
         position: "fixed",
         right: 0,
